@@ -1,9 +1,10 @@
 # -*- coding:utf-8 -*-
 import os, sys, json, threading, time
+dir_path = os.path.split(os.path.abspath(sys.argv[0]))[0]
+sys.path.append(dir_path+"/../../")
 sys.path.append(os.path.abspath(os.path.join(os.getcwd())))
 from app import MongoDB
-from app.admin.drive import logic
-from app.admin.drive import models
+from app.admin.drive import logic, models
 from app import common
 
 """
@@ -29,7 +30,7 @@ def task_getlist(id, path, type):
         # 创建集合 - 不添加一条数据，集合是不会创建的，因为MongoDB是惰性数据库
         drivename = "drive_" + str(id)
         collection = MongoDB.db[drivename]
-        for i in res["data"]["value"]:
+        for i in res["data"]:
             if type == "all":
                 if "folder" in i.keys():
                     dic = {

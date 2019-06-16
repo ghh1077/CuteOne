@@ -31,7 +31,7 @@ def upProcess(task_id, drive_id, fileName, remotePath):
             putfilesmall(item.id, drive_id, fileName, remotePath)
     target_filename = os.getcwd()+"/temp_uploads/" + str(drive_id) + "/" + fileName
     os.remove(target_filename)  # 删除文件
-    taskModels.task.update({"id": task_id, "status":1}) # 更新任务状态
+    taskModels.uploads_list.update({"id": task_id, "status":1}) # 更新任务状态
 
 
 # def putfile(dirve_id, id, fileName, remotePath):
@@ -71,12 +71,13 @@ def putfilesmall(disk_id, dirve_id, fileName, remotePath, times=1):
     token = json.loads(json.loads(data_list.token))
     url = config.app_url + '/v1.0/me/drive/items/root:{}/{}:/content'.format(remotePath, fileName)
     headers = {'Authorization': 'bearer {}'.format(token["access_token"])}
-    pull_res = requests.put(url, headers=headers, data=open(os.getcwd()+"/temp_uploads/syn_temp/" + str(dirve_id) + "/" + fileName, 'rb'))
+    pull_res = requests.put(url, headers=headers, data=open(os.getcwd()+"/temp_uploads/" + str(dirve_id) + "/" + fileName, 'rb'))
     pull_res = json.loads(pull_res.text)
     if 'error' in pull_res.keys():
+        driveLogic.reacquireToken(disk_id)
         putfilesmall(disk_id, dirve_id, fileName, remotePath, times)
     else:
-        putfilesmall(disk_id, dirve_id, fileName, remotePath, times)
+        return pull_res
 
 
 """

@@ -8,6 +8,7 @@ from app.admin import admin
 from ..drive import models
 from ..drive import logic
 from ..task import models as taskModels
+from ..menu import models as menuModels
 from app import common
 
 
@@ -29,13 +30,13 @@ def list():
                 else:
                     syn_task_status = "<button class='layui-btn layui-btn-primary layui-btn-xs'>暂无同步进程</button>"
                 json_data["data"].append(
-                    {"id": result.id, "title": result.title, "description": result.description, "drive_number":drive_number, "sort":result.sort, "syn_task_status":syn_task_status, "update_time":str(result.update_time), "create_time": str(result.create_time)})
+                    {"id": result.id, "title": result.title, "description": result.description, "drive_number":drive_number, "syn_task_status":syn_task_status, "update_time":str(result.update_time), "create_time": str(result.create_time)})
         return json.dumps(json_data)
     else:
         return render_template('admin/drive/list.html', top_nav='drive', activity_nav='list', isRunning=isRunning)
 
 
-@admin.route('/drive/syn_detail/<int:id>', methods=['GET', 'POST'])  # 新增/编辑
+@admin.route('/drive/syn_detail/<int:id>', methods=['GET', 'POST'])
 @decorators.login_require
 def syn_detail(id):
     collection = MongoDB.db["log"]
@@ -53,42 +54,43 @@ def edit(id):
             result["id"] = data_list.id
             result["title"] = data_list.title
             result["description"] = data_list.description
-            result["activate"] = data_list.activate
-            result["sort"] = data_list.sort
+
         else:
             result = {
                 'id': '0'
                 , 'title': ''
                 , 'description': ''
-                , 'activate': 0
-                , 'sort': 0
             }
         return render_template('admin/drive/edit.html', top_nav='drive', activity_nav='edit', data=result)
     else:
         id = request.form['id']
         title = request.form['title']
         description = request.form['description']
-        if "activate" in request.form.keys():
-            activate = 1
-        else:
-            activate = 0
-        sort = request.form['sort']
         if id != '0':
-            models.drive.update({"id": id, "title": title, "description": description, "activate": activate, "sort": sort})
+            models.drive.update({"id": id, "title": title, "description": description})
         else:
             # 初始化role 并插入数据库
-            role = models.drive(title=title, description=description, activate=activate, sort=sort)
+            role = models.drive(title=title, description=description)
             MysqlDB.session.add(role)
             MysqlDB.session.flush()
+            role_id = role.id
             MysqlDB.session.commit()
+            menu_role = menuModels.menu(title=title, url='/drive/?drive='+str(role_id), pid=0, postion=0, type=1, type_name=role_id, activate=0, sort=0, status=1)
+            MysqlDB.session.add(menu_role)
+            MysqlDB.session.flush()
+            MysqlDB.session.commit()
+
+
         return json.dumps({"code": 0, "msg": "完成！"})
 
 
 @admin.route('/drive/drive_del/<int:id>', methods=['GET', 'POST'])  # 新增/编辑
 @decorators.login_require
 def drive_del(id):
+    res = models.drive.find_by_id(id)
     models.drive.deldata(id)
     models.drive_list.deldata_by_drive_id(id)
+    menuModels.menu.deldata_by_title_type(res.title, 1)
     return json.dumps({"code": 0, "msg": "完成！"})
 
 
@@ -150,7 +152,28 @@ def disk_edit(drive_id, id):
         code = request.form['code']
         chief = request.form['chief']
         if id != '0':
-            models.drive_list.update({"id": id, "title": title, "client_id": client_id, "client_secret": client_secret, "chief":chief})
+            if code:
+                url = config.BaseAuthUrl + '/common/oauth2/v2.0/token'
+                redirect_url = "http://127.0.0.1/"
+                AuthData = 'client_id={client_id}&redirect_uri={redirect_uri}&client_secret={client_secret}&code={code}&grant_type=authorization_code'
+                data = AuthData.format(client_id=client_id, redirect_uri=redirect_url, client_secret=client_secret,
+                                       code=code)
+                headers = {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'User-Agent': 'ISV|CuteOne|CuteOne/1.0'
+                }
+                res = requests.post(url, data=data, headers=headers)
+                get_res = json.loads(res.text)
+                if 'error' in get_res.keys():
+                    return json.dumps({"code": 1, "msg": "Error！"})
+                else:
+                    token = json.dumps(res.text)
+                    models.drive_list.update({"id": id, "title": title, "client_id": client_id, "client_secret": client_secret, "chief":chief, "token":token})
+                    return json.dumps({"code": 0, "msg": "完成！"})
+            else:
+                models.drive_list.update(
+                    {"id": id, "title": title, "client_id": client_id, "client_secret": client_secret, "chief": chief})
+                return json.dumps({"code": 0, "msg": "完成！"})
         else:
             url = config.BaseAuthUrl + '/common/oauth2/v2.0/token'
             redirect_url = "http://127.0.0.1/"
@@ -161,13 +184,16 @@ def disk_edit(drive_id, id):
                 'User-Agent': 'ISV|CuteOne|CuteOne/1.0'
             }
             res = requests.post(url,data=data,headers=headers)
-            token = json.dumps(res.text)
-
-            # 初始化role 并插入数据库
-            role = models.drive_list(title=title, drive_id=drive_id, client_id=client_id, client_secret=client_secret, token=token, chief=chief)
-            MysqlDB.session.add(role)
-            MysqlDB.session.flush()
-            MysqlDB.session.commit()
+            get_res = json.loads(res.text)
+            if 'error' in get_res.keys():
+                return json.dumps({"code": 1, "msg": "Error！"})
+            else:
+                token = json.dumps(res.text)
+                # 初始化role 并插入数据库
+                role = models.drive_list(title=title, drive_id=drive_id, client_id=client_id, client_secret=client_secret, token=token, chief=chief)
+                MysqlDB.session.add(role)
+                MysqlDB.session.flush()
+                MysqlDB.session.commit()
         return json.dumps({"code": 0, "msg": "完成！"})
 
 
@@ -244,7 +270,7 @@ def file_uploads_success():
         os.rmdir(target_filename)   # 删除文件夹
 
     # # 初始化role 并插入数据库
-    role = taskModels.task(drive_id=drive_id, file_name=fileName,path=path, type='uploads', status=0)
+    role = taskModels.uploads_list(drive_id=drive_id, file_name=fileName,path=path, type='uploads', status=0)
     MysqlDB.session.add(role)
     MysqlDB.session.flush()
     MysqlDB.session.commit()
@@ -284,10 +310,10 @@ def files(id):
         path = ''
         current_url = '/admin/drive/files/' + str(id) + '/?path='
     data = logic.get_one_file_list(id, path)
-    for i in data["data"]["value"]:
+    for i in data["data"]:
         i["lastModifiedDateTime"] = common.utc_to_local(i["lastModifiedDateTime"])
         i["size"] = common.size_cov(i["size"])
-    data = data["data"]["value"]
+    data = data["data"]
     return render_template('admin/drive/files.html', top_nav='drive', activity_nav='edit', chief=chief, id=id, current_url=current_url, drive_id=drive_id, uploads_path=uploads_path, data=data)
 
 
@@ -336,6 +362,14 @@ def synStart(id):
 def synContinue(id):
     drive_id = id
     logic.startSynTask(drive_id)
+    return json.dumps({"code": 0, "msg": "成功！"})
+
+
+@admin.route('/drive/synReStart/<int:id>')
+@decorators.login_require
+def synReStart(id):
+    drive_id = id
+    logic.reStartSynTask(drive_id)
     return json.dumps({"code": 0, "msg": "成功！"})
 
 
